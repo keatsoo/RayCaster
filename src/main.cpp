@@ -5,17 +5,21 @@
 #include <vector>
 
 #define WINDOW_H 600
-#define WINDOW_W 800
+#define WINDOW_W 1200
 
 #define GAME_W 300
 #define GAME_H 300
 
 #define pi 3.141592653589f
+#define deg pi / 180.0f
 
 using namespace std;
 
 sf::RenderWindow window;
+sf::Texture imgBuffer;
+sf::Sprite imgSprite;
 sf::Clock deltaClock;
+sf::Uint8 pixArray[WINDOW_W * WINDOW_H * 4];
 
 vector<sf::Vertex> pVertices;
 vector<sf::Vertex> line;
@@ -43,7 +47,7 @@ float px(150.0f); // Position X du joueur sur la carte
 float py(150.0f); // Position Y du joueur sur la carte
 float pa;         // Angle de vue du joueur en radians
 
-float speed(0.1f); // Vitesse
+float speed(0.05f); // Vitesse
 float dTime(0.0f);
 
 int pHeight = 8; // Hauteur du carré
@@ -55,6 +59,12 @@ int mapWall[64] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1,
                    1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 int mapWidth = 8;
 int mapHeight = 8;
+
+int wallTex[4] = {1, 0, 1, 0};
+int wallTexWidth = 2;
+int wallTexHeight = 2;
+
+float wallHeight = 1.0f;
 
 // ~~ Fonctions du jeu ~~ //
 
@@ -69,7 +79,9 @@ float normAngle(float a);
 float calcDist(float x1, float y1, float x2, float y2);
 
 int main(int argc, char const *argv[]) {
-    window.create(sf::VideoMode(800, 600), "KitRayCaster");
+    window.create(sf::VideoMode(WINDOW_W, WINDOW_H), "KitRayCaster");
+    imgBuffer.create(WINDOW_W, WINDOW_H);
+    imgSprite.setTexture(imgBuffer);
 
     while (window.isOpen()) {
         gameLoop();
@@ -82,9 +94,10 @@ void gameLoop() {
     gameInput();
 
     window.clear(sf::Color::White);
+    // gameUpdate();
+    window.draw(imgSprite);
     drawBlocks();
     movePlayer();
-    gameUpdate();
     castRays();
     window.display();
 
@@ -224,7 +237,9 @@ void castRays() {
     int side; // 0 for NS, 1 for EW
     int r(0);
 
-    ray.a = normAngle(pa);
+    int nbOfRay = 90;
+
+    ray.a = normAngle(normAngle(pa) - (nbOfRay / 2) * deg);
 
     int boxH = GAME_H / mapHeight;
     int boxW = GAME_W / mapWidth;
@@ -232,9 +247,13 @@ void castRays() {
     sf::Vertex rayLine[2];
     rayLine[0] = sf::Vertex(sf::Vector2f(px, py), sf::Color::Red);
 
-    while (r < 1) {
+    float shade;
+    float pixW = 8;
+    float pixH = 8;
 
+    while (r < nbOfRay) {
         // HORIZONTAL
+        hit = false;
         float atan = -1 / tan(ray.a);
         if (ray.a > pi) { // Quand on regarde vers le haut
             ray.y = (int)(py / boxH) * boxH - 0.0001;
@@ -294,7 +313,8 @@ void castRays() {
             ray.ox = boxW;
             ray.oy = -ray.ox * ntan;
         }
-        if (ray.a == pi / 2 || ray.a == 3 * pi / 2) { // Quand on regarde sur les côtés
+        if (ray.a == pi / 2 ||
+            ray.a == 3 * pi / 2) { // Quand on regarde sur les côtés
             ray.y = py;
             ray.x = px;
 
@@ -321,14 +341,55 @@ void castRays() {
             side = 0;
             ray.x = hRay.x;
             ray.y = hRay.y;
+            ray.dist = hRay.dist;
         } else {
             side = 1;
             ray.x = vRay.x;
             ray.y = vRay.y;
+            ray.dist = vRay.dist;
         }
 
         rayLine[1] = sf::Vertex(sf::Vector2f(ray.x, ray.y), sf::Color::Green);
         window.draw(&rayLine[0], 2, sf::LineStrip);
+
+        if (side) {
+            shade = 0.5f;
+        } else {
+            shade = 1;
+        }
+
+        sf::Color wallColor(0x00, 0x00, 0xFF * shade);
+
+        float ca = normAngle(pa - ray.a);
+        ray.dist *= cos(ca);
+        float lineH = (WINDOW_H / ray.dist) * wallHeight;
+
+        sf::RectangleShape blockLine(sf::Vector2f(8, WINDOW_H / 2));
+        blockLine.setPosition(sf::Vector2f(r * pixW + 400, 0));
+        blockLine.setFillColor(sf::Color(0x00, 0xF0, 0xF0));
+        window.draw(blockLine);
+
+        blockLine.setPosition(sf::Vector2f(r * pixW + 400, WINDOW_H / 2));
+        blockLine.setFillColor(sf::Color(0xBB, 0xBB, 0x00));
+        window.draw(blockLine);
+
+        for (int tex_y = 0; tex_y < lineH; tex_y++) {
+            /* blockLine.setSize(sf::Vector2f(pixW, pixH));
+            blockLine.setPosition(
+                sf::Vector2f(pixW * r + 400, (WINDOW_H / 2 - lineH / 2) + tex_y
+            * pixH)); blockLine.setFillColor(wallColor); */
+
+            float pixX = pixW * r + 400;
+            float pixY = (WINDOW_H / 2 - lineH / 2) + tex_y * pixH;
+            pixArray[(int)(pixY * WINDOW_W + pixX)] = wallColor.r;
+            pixArray[(int)(pixY * WINDOW_W + pixX) + 1] = wallColor.g;
+            pixArray[(int)(pixY * WINDOW_W + pixX) + 2] = wallColor.b;
+            pixArray[(int)(pixY * WINDOW_W + pixX) + 3] = wallColor.a;
+            imgBuffer.update(pixArray);
+        }
+
+        ray.a += deg;
+        ray.a = normAngle(ray.a);
         r++;
     }
 }
